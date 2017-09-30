@@ -137,6 +137,34 @@ class CaptioningRNN(object):
         # defined above to store loss and gradients; grads[k] should give the      #
         # gradients for self.params[k].                                            #
         ############################################################################
+        h0 = np.dot(features, W_proj) + b_proj
+        xemb, ecache = word_embedding_forward(captions_in, W_embed)
+        if self.cell_type == 'rnn':
+            h, rcache = rnn_forward(xemb, h0, Wx, Wh, b)
+        if self.cell_type == 'lstm':
+            h, rcache = lstm_forward(xemb, h0, Wx, Wh, b)
+        out, acache = temporal_affine_forward(h, W_vocab, b_vocab)
+
+        loss, dx = temporal_softmax_loss(out, captions_out, mask)
+        dh, dW_vocab, db_vocab = temporal_affine_backward(dx, acache)
+        if self.cell_type == 'rnn':
+            dx, dh0, dWx, dWh, db = rnn_backward(dh, rcache)
+        if self.cell_type == 'lstm':
+            dx, dh0, dWx, dWh, db = lstm_backward(dh, rcache)
+        dW_embed = word_embedding_backward(dx, ecache)
+        dW_proj = np.dot(features.T, dh0)
+        db_proj = np.sum(dh0, axis = 0)
+
+        grads['W_proj'] = dW_proj
+        grads['b_proj'] = db_proj
+        grads['W_embed'] = dW_embed
+        grads['Wx'] = dWx
+        grads['Wh'] = dWh
+        grads['b'] = db
+        grads['W_vocab'] = dW_vocab
+        grads['b_vocab'] = db_vocab
+
+
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -199,6 +227,23 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
+        h = np.dot(features, W_proj) + b_proj
+        H = h.shape[1]
+        c = np.zeros((N, H))
+        word = np.ones((N, 1), np.int32)*self._start
+        for t in range(max_length):
+
+            word_emb, _ = word_embedding_forward(word.astype(np.int32), W_embed)
+            if self.cell_type == 'rnn':
+                h, _ = rnn_step_forward(np.squeeze(word_emb), h, Wx, Wh, b)
+            if self.cell_type == 'lstm':
+                h, c, _ = lstm_step_forward(np.squeeze(word_emb), h, c, Wx, Wh, b)
+
+            out, _ = temporal_affine_forward(h.reshape((N, 1, -1)), W_vocab, b_vocab)
+            word = np.amax(np.squeeze(out), axis = 1)
+            captions[:, t] = word.reshape((-1)).astype(np.int32)
+
+
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
